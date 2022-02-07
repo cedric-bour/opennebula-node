@@ -1,0 +1,75 @@
+---
+
+- block:
+
+  - name: Add key opennebula
+    apt_key:
+      url: https://downloads.opennebula.org/repo/repo.key
+      state: present
+
+  - name: Add repository opennebula
+    apt_repository:
+      repo: deb https://downloads.opennebula.org/repo/6.1/Ubuntu/20.04 stable opennebula
+      state: present
+
+  - set_fact:
+      packages: 
+        - opennebula
+        - opennebula-sunstone
+        - opennebula-gate
+        - opennebula-flow
+
+  - name: Install {{ packages }}
+    apt:
+      name: '{{ packages }}'
+      state: present
+
+  - name: check if gems is installed
+    stat:
+      path: /usr/share/one/gems
+    register: gems_exist
+
+  - name: Install gems
+    shell: /usr/share/one/install_gems
+    register: gems
+    failed_when: "'Successfully done!' not in gems.stdout_lines"
+    when: not gems_exist.stat.exists
+
+  - name: Configure mysql database on one
+    replace:
+      path: /etc/one/oned.conf
+      regexp: 'DB = \[(.|\n)*?]'
+      replace: DB = [ backend = "mysql",  server = "localhost",  port = 0,  user = "oneadmin",  passwd = "StrongPassword",  db_name = "opennebula" ]
+
+  - name: Change password oneadmin
+    copy:
+      dest: /var/lib/one/.one/one_auth
+      content: "oneadmin:mypassword\n"
+      owner: oneadmin
+      group: oneadmin
+      mode: '0600'
+
+  - name: Start opennebula service
+    systemd:
+      state: started
+      name: '{{ item }}'
+      enabled: true
+    with_items:
+      - opennebula
+      - opennebula-sunstone
+
+  - name: Wait for port 9869 to become open on the host
+    wait_for:
+      port: 9869
+      state: started
+      delay: 0
+      connect_timeout: 10
+      timeout: 10
+
+  - name: Url oneadmin
+    fail:
+      msg: "{{ item }}"
+    with_items: "Go to http://{{ inventory_hostname }}:9869"
+    failed_when: false
+
+  become: true

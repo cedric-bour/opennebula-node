@@ -1,0 +1,75 @@
+---
+
+- block:
+
+  - name: check if node is active
+    shell: "onehost list"
+    register: checknode
+    delegate_to: "{{ groups['admin'][0] }}"
+    failed_when: "'ID NAME' not in checknode.stdout_lines[0]"
+    changed_when: false
+
+  - block:
+
+    - name: Add key opennebula
+      apt_key:
+        url: https://downloads.opennebula.org/repo/repo.key
+        state: present
+
+    - name: Add repository opennebula
+      apt_repository:
+        repo: deb https://downloads.opennebula.org/repo/6.1/Ubuntu/20.04 stable opennebula
+        state: present
+
+    - name: Install opennebula-node-kvm
+      apt:
+        name: opennebula-node-kvm
+        state: present
+      register: install
+
+    - name: Restart libvirtd service
+      systemd:
+        state: restarted
+        name: libvirtd
+      when: install.changed
+
+    - name: Get ssh key from admin
+      slurp:
+        src: /var/lib/one/.ssh/id_rsa.pub
+      register: slurpfile
+      delegate_to: "{{ groups['admin'][0] }}"
+
+    - set_fact:
+        ssh_key: "{{ slurpfile.content | b64decode }}"
+
+    - name: checking for host
+      shell: "cat /var/lib/one/.ssh/authorized_keys|grep '{{ ssh_key }}'"
+      register: ssh_already
+      failed_when: "ssh_already.rc != 0 and 'No such file or directory' not in ssh_already.stderr"
+      changed_when: false
+
+    - name: Set key to node
+      lineinfile:
+        path: /var/lib/one/.ssh/authorized_keys
+        line: "{{ ssh_key }}"
+        create: true
+      when: ssh_already.stdout_lines | length == 0
+
+    - name: Add node from admin
+      shell: "onehost create {{  inventory_hostname }} -i kvm -v kvm"
+      register: addnode
+      delegate_to: "{{ groups['admin'][0] }}"
+      failed_when: "'ID: ' not in addnode.stdout"
+
+    - name: Check state node from admin
+      shell: "onehost show {{ addnode.stdout.split(' ')[1] }}"
+      register: statenode
+      delay: 10
+      retries: 30
+      until: "'MONITORED' in (statenode.stdout_lines | map('regex_search', 'STATE(.*)') | select('string') | list)[0]"
+      delegate_to: "{{ groups['admin'][0] }}"
+      changed_when: false
+
+    when: checknode.stdout_lines | map('regex_search', inventory_hostname) | select('string') | list | length == 0
+
+  become: true

@@ -1,0 +1,27 @@
+---
+
+- block:
+
+  - name: check if image is present
+    shell: "oneimage list"
+    register: checkimage
+    failed_when: "'ID USER' not in checkimage.stdout_lines[0]"
+    changed_when: false
+
+  - block:
+
+    - name: Get ID of image Ubuntu 20.04
+      shell: "onemarketapp list|grep 'OpenNebula'|grep 'Ubuntu 20.04'"
+      register: ubuntu_id
+      failed_when: ubuntu_id.stdout_lines | length == 0
+      changed_when: false
+
+    - name: Download image Ubuntu 20.04
+      shell: "onemarketapp export {{ ubuntu_id.stdout_lines[0].split(' ')[1] }} ubuntu-20.04 -d 1"
+      register: ubuntu_download
+      failed_when: ubuntu_download.rc not in [0, 255]
+      changed_when: ubuntu_download.rc in [0, 255]
+
+    when: checkimage.stdout_lines | map('regex_search', 'ubuntu-20.04') | select('string') | list | length == 0
+
+  become: true
