@@ -1,0 +1,7 @@
+- name: Installation one_host
+  hosts: one_host
+  remote_user: exploit
+  gather_facts: false
+  roles:
+    - role: configure-host
+      tags: configure-host

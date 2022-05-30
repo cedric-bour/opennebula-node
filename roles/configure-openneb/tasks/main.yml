@@ -9,7 +9,7 @@
 
   - name: Add repository opennebula
     apt_repository:
-      repo: deb https://downloads.opennebula.org/repo/6.1/Ubuntu/20.04 stable opennebula
+      repo: deb https://downloads.opennebula.org/repo/6.4/Ubuntu/20.04 stable opennebula
       state: present
 
   - set_fact:
@@ -19,10 +19,11 @@
         - opennebula-gate
         - opennebula-flow
 
-  - name: Install {{ packages }}
+  - name: Install {{ packages }}
     apt:
-      name: '{{ packages }}'
+      name: '{{ packages }}'
       state: present
+      update_cache: yes
 
   - name: check if gems is installed
     stat:
@@ -68,8 +69,8 @@
 
   - name: Url oneadmin
     fail:
-      msg: "{{ item }}"
-    with_items: "Go to http://{{ inventory_hostname }}:9869"
+      msg: "{{ item }}"
+    with_items: "Go to http://{{ inventory_hostname }}:9869"
     failed_when: false
 
   become: true

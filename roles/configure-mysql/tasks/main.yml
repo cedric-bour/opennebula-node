@@ -6,6 +6,7 @@
     apt:
       name: mariadb-server
       state: present
+      update_cache: yes
 
   - name: check if DB exists
     shell: mysql -e 'SHOW DATABASES;'

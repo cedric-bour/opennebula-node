@@ -1,0 +1,113 @@
+---
+
+- block:
+
+  - block:
+
+    - name: check server list
+      shell: onezone show 0 --yaml
+      register: zone_server_list
+      changed_when: false
+
+    - set_fact:
+        server_exist: "{{ (zone_server_list.stdout | from_yaml).ZONE.SERVER_POOL.SERVER is defined }}"
+
+    - block:
+
+      - set_fact:
+          server: "{{ (zone_server_list.stdout | from_yaml).ZONE.SERVER_POOL.SERVER }}"
+    
+      - set_fact:
+          server_names: "{{ server | json_query('NAME') }}"
+        when: (server is defined) and (server | type_debug == "dict")
+
+      - set_fact:
+          server_names: "{{ server | json_query('[*].NAME') }}"
+        when: (server is defined) and (server | type_debug == "list")
+
+      - name: add server
+        shell: onezone server-add 0 --name {{ inventory_hostname }} --rpc http://{{ inventory_hostname }}:2633/RPC2
+        when: inventory_hostname not in server_names
+
+      when: server_exist
+
+    - name: add server
+      shell: onezone server-add 0 --name {{ inventory_hostname }} --rpc http://{{ inventory_hostname }}:2633/RPC2
+      when: not server_exist
+
+    - name: check server list
+      shell: onezone show 0 --yaml
+      register: zone_server_list
+      changed_when: false
+
+    delegate_to: "{{ groups['one_master'][0] }}"
+
+  - set_fact:
+      server: "{{ (zone_server_list.stdout | from_yaml).ZONE.SERVER_POOL.SERVER }}"
+
+  - set_fact:
+      server_id: "{{ server | json_query(jms) | first }}"
+    vars:
+      jms: "[?NAME=='{{ inventory_hostname }}'].ID"
+    when: (server is defined) and (server | type_debug == "list")
+
+  - set_fact:
+      server_id: "{{ server | json_query('ID') }}"
+    when: (server is defined) and (server | type_debug == "dict")
+
+  - debug:
+      var: server_id
+
+  - name: Enabled cluster mode
+    lineinfile:
+      path: /etc/one/oned.conf
+      regexp: '.*SERVER_ID.*='
+      line: '    SERVER_ID     = {{ server_id }},'
+      backrefs: yes
+    register: cluster_mode
+
+  - name: Enabled RAFT module (leader)
+    lineinfile:
+      path: /etc/one/oned.conf
+      backrefs: yes
+      regexp: '# RAFT_LEADER_HOOK'
+      line: |
+        RAFT_LEADER_HOOK = [
+            COMMAND = "raft/vip.sh",
+            ARGUMENTS = "leader br0 192.168.3.120/24"
+        ]
+    register: raft_leader
+
+  - name: Enabled RAFT module (follower)
+    lineinfile:
+      path: /etc/one/oned.conf
+      backrefs: yes
+      regexp: '# RAFT_FOLLOWER_HOOK'
+      line: |
+        RAFT_FOLLOWER_HOOK = [
+            COMMAND = "raft/vip.sh",
+            ARGUMENTS = "follower br0 192.168.3.120/24"
+        ]
+    register: raft_follower
+
+  - block:
+
+    - name: Stop opennebula service
+      systemd:
+        state: stopped
+        name: '{{ item }}'
+      with_items:
+        - opennebula
+        - opennebula-sunstone
+
+    - name: Start opennebula service
+      systemd:
+        state: started
+        name: '{{ item }}'
+      with_items:
+        - opennebula
+        - opennebula-sunstone
+
+    when: cluster_mode.changed or raft_leader.changed or raft_follower.changed
+
+  become: true

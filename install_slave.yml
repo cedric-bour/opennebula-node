@@ -1,0 +1,11 @@
+- name: Installation one_slave
+  hosts: one_slave
+  remote_user: exploit
+  gather_facts: false
+  roles:
+    - role: configure-mysql
+      tags: configure-mysql
+    - role: configure-openneb
+      tags: configure-openneb
+    - role: configure-openneb-cluster
+      tags: configure-openneb-cluster
